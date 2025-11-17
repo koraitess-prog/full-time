@@ -1,14 +1,14 @@
-// script.js - קוד סופי: יציבות מגע, מחזור אובייקטים, זום-אאוט 80% וחלודה מיידית
+// script.js - קוד סופי: זום מותנה (80% / 90%), יציבות מגע, מחזור אובייקטים, וחלודה מיידית
 
 // הגדרות עיקריות
 const MAX_ZOOM = 10;
-const MIN_ZOOM = 0.8; // זום-אאוט מינימלי (80%)
-// 🌟 החלודה מתחילה מוקדם! 1.05 = חלודה 1, 2 = חלודה 2, 3.5 = חלודה 3
+const MIN_ZOOM_DEFAULT = 0.8; // 80% זום-אאוט ברירת מחדל (לאובייקטים 0, 1, 4)
+const MIN_ZOOM_TIGHT = 0.9; // 90% זום-אאוט (פחות מרווח - לאובייקטים 2 ו-3)
 const RUST_THRESHOLD = [1.05, 2, 3.5]; 
 const RUST_HOLD_DELAY_MS = 2000; 
 const GLITCH_DURATION_MS = 500; 
-const MIN_PAN_ZOOM = 1.05; // Pan (גרירה) מתחיל רק כשהתמונה מוגדלת מעבר ל-100%
-const NUM_OBJECTS = 4; // **ודא שזה המספר הנכון של האובייקטים שלך!**
+const MIN_PAN_ZOOM = 1.05; 
+const NUM_OBJECTS = 5; // **עדכון: יש 5 אובייקטים (0 עד 4) - אנא ודא שזה המספר הנכון!**
 
 // אלמנטים
 const imageContainer = document.getElementById('image-container');
@@ -16,7 +16,7 @@ const glitchOverlay = document.getElementById('glitch-overlay');
 const objectGroups = document.querySelectorAll('.object-group');
 
 // מצב גלובלי
-let currentZoom = MIN_ZOOM; // אתחול למצב המינימלי
+let currentZoom = MIN_ZOOM_DEFAULT; // אתחול עם ברירת המחדל, יתוקן מיד באתחול.
 let currentObjectIndex = 0; 
 let isGlitching = false;
 let rustHoldTimeoutId = null;
@@ -40,8 +40,16 @@ let initialFocusPointY = 0;
 
 
 // ------------------------------------------
-// פונקציות עזר
+// פונקציות עזר (כולל הזום המותנה)
 // ------------------------------------------
+
+function getMinZoomForCurrentObject() {
+    // אובייקטים 2 ו-3 הם אינדקס 2 ו-3 ב-JavaScript.
+    if (currentObjectIndex === 2 || currentObjectIndex === 3) {
+        return MIN_ZOOM_TIGHT; // 0.9 (פחות זום-אאוט)
+    }
+    return MIN_ZOOM_DEFAULT; // 0.8 (זום-אאוט ברירת מחדל)
+}
 
 function getCurrentObjectLayers() {
     const activeGroup = objectGroups[currentObjectIndex];
@@ -55,15 +63,29 @@ function getCurrentObjectLayers() {
 }
 
 function cycleToNextObject() {
+    // 1. כבה את הקבוצה הנוכחית
     objectGroups[currentObjectIndex].classList.remove('active');
+    
+    // 2. עדכן את האינדקס
     currentObjectIndex = (currentObjectIndex + 1) % NUM_OBJECTS;
+    
+    // 3. הפעל את הקבוצה הבאה
     objectGroups[currentObjectIndex].classList.add('active');
-    maxRustLevel = 0;
+    
+    // 🌟 איפוס הזום והמיקום לאובייקט החדש (משתמש בזום המותנה) 🌟
+    currentZoom = getMinZoomForCurrentObject(); 
+    currentTranslateX = 0;
+    currentTranslateY = 0;
+    previousTranslateX = 0;
+    previousTranslateY = 0;
+    updateImageTransform(); 
+    
+    maxRustLevel = 0; // איפוס חלודה
 }
 
 
 // ------------------------------------------
-// פונקציות ליבה
+// פונקציות ליבה (עדכון כל הלוגיקה לזום המותנה)
 // ------------------------------------------
 
 function updateImageTransform() {
@@ -88,7 +110,7 @@ function updateRustLayers() {
 
     maxRustLevel = Math.max(maxRustLevel, currentMaxRustIndex + 1);
 
-    // 🌟 התיקון: חלודה מופיעה רק מעל 105% זום 🌟
+    // חלודה מופיעה רק מעל 105% זום
     if (currentZoom < 1.05) { 
         rustLayers.forEach(layer => layer.style.opacity = 0);
         cleanLayer.style.opacity = 1;
@@ -115,15 +137,13 @@ function activateGlitchAndReset() {
         isGlitching = false;
         glitchTimeoutId = null;
 
-        // איפוס טרנספורמציה למצב מינימלי (0.8)
-        currentZoom = MIN_ZOOM;
         currentTranslateX = 0;
         currentTranslateY = 0;
         previousTranslateX = 0;
         previousTranslateY = 0;
-        updateImageTransform();
         
-        cycleToNextObject();
+        // cycleToNextObject מטפלת באיפוס הזום לערך המינימלי הנכון
+        cycleToNextObject(); 
         
         // איפוס חזותי של האובייקט החדש (למצב נקי)
         const { cleanLayer, rustLayers } = getCurrentObjectLayers();
@@ -138,13 +158,17 @@ function performZoom(delta) {
         clearTimeout(rustHoldTimeoutId);
         rustHoldTimeoutId = null;
     }
+    
+    // קטיעת גליץ'
     if (glitchTimeoutId) {
         clearTimeout(glitchTimeoutId);
         glitchTimeoutId = null;
         glitchOverlay.classList.remove('glitching');
         isGlitching = false;
         
-        currentZoom = MIN_ZOOM; currentTranslateX = 0; currentTranslateY = 0;
+        // איפוס מלא לאחר קטיעת גליץ'
+        currentZoom = getMinZoomForCurrentObject(); 
+        currentTranslateX = 0; currentTranslateY = 0;
         previousTranslateX = 0; previousTranslateY = 0;
         updateImageTransform();
         cycleToNextObject(); 
@@ -156,11 +180,12 @@ function performZoom(delta) {
     }
     if (isGlitching) return;
 
+    const minZoom = getMinZoomForCurrentObject(); // קבלת ערך מותנה
     let newZoom = currentZoom + delta;
-    newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom)); 
+    newZoom = Math.max(minZoom, Math.min(MAX_ZOOM, newZoom)); // שימוש בערך המותנה
     
     // אם הזום חוזר למצב המינימלי, נאפס את מיקום התרגום
-    if (newZoom === MIN_ZOOM) { 
+    if (newZoom === minZoom) { 
         currentTranslateX = 0;
         currentTranslateY = 0;
         previousTranslateX = 0;
@@ -171,8 +196,8 @@ function performZoom(delta) {
     updateImageTransform();
     updateRustLayers();
 
-    // הפעל טיימר גליץ' רק אם אנחנו מגיעים למצב זום מינימלי (0.8)
-    if (currentZoom <= MIN_ZOOM && delta < 0) {
+    // הפעל טיימר גליץ' רק אם אנחנו מגיעים למצב זום מינימלי
+    if (currentZoom <= minZoom && delta < 0) { // שימוש בערך המותנה
         const { cleanLayer, rustLayers } = getCurrentObjectLayers();
         rustLayers.forEach(layer => layer.style.opacity = 0);
         if (rustLayers[2]) rustLayers[2].style.opacity = 1; 
@@ -188,7 +213,7 @@ function performZoom(delta) {
 }
 
 // ------------------------------------------
-// לוגיקת מגע ועכבר
+// לוגיקת מגע ועכבר (שימוש בזום המותנה)
 // ------------------------------------------
 
 function handleWheel(event) {
@@ -263,7 +288,9 @@ function handleTouchStart(event) {
         glitchOverlay.classList.remove('glitching');
         isGlitching = false;
         
-        currentZoom = MIN_ZOOM; currentTranslateX = 0; currentTranslateY = 0;
+        // איפוס מלא לאחר קטיעת גליץ'
+        currentZoom = getMinZoomForCurrentObject(); 
+        currentTranslateX = 0; currentTranslateY = 0;
         previousTranslateX = 0; previousTranslateY = 0;
         updateImageTransform();
         cycleToNextObject(); 
@@ -309,11 +336,12 @@ function handleTouchMove(event) {
     if (isPinching && event.touches.length === 2) {
         // --- Pinch Zoom ---
         
+        const minZoom = getMinZoomForCurrentObject(); // קבלת ערך מותנה
         const newDistance = getDistance(event.touches[0], event.touches[1]);
         const scaleFactor = newDistance / initialDistance;
 
         const oldZoom = currentZoom;
-        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZoom * scaleFactor));
+        const newZoom = Math.max(minZoom, Math.min(MAX_ZOOM, oldZoom * scaleFactor)); // שימוש בערך המותנה
         
         if (newZoom === oldZoom) return;
 
@@ -335,8 +363,8 @@ function handleTouchMove(event) {
         updateImageTransform();
         updateRustLayers(); 
 
-        // לוגיקת גליץ' / חלודה (רק אם יורדים מתחת ל-MIN_ZOOM)
-        if (currentZoom <= MIN_ZOOM) {
+        // לוגיקת גליץ' / חלודה (שימוש בערך המותנה)
+        if (currentZoom <= minZoom) { 
             const { cleanLayer, rustLayers } = getCurrentObjectLayers();
             rustLayers.forEach(layer => layer.style.opacity = 0);
             if (rustLayers[2]) rustLayers[2].style.opacity = 1; 
@@ -383,8 +411,8 @@ function handleTouchEnd() {
     initialFocusPointX = 0; 
     initialFocusPointY = 0;
     
-    // מטפל בהמתנת הגליץ' לאחר סיום מגע
-    if (currentZoom <= MIN_ZOOM && !rustHoldTimeoutId && !isGlitching) {
+    // מטפל בהמתנת הגליץ' לאחר סיום מגע (שימוש בערך המותנה)
+    if (currentZoom <= getMinZoomForCurrentObject() && !rustHoldTimeoutId && !isGlitching) {
          const { cleanLayer, rustLayers } = getCurrentObjectLayers();
          rustLayers.forEach(layer => layer.style.opacity = 0);
          if (rustLayers[2]) rustLayers[2].style.opacity = 1; 
@@ -410,7 +438,8 @@ window.addEventListener('touchmove', handleTouchMove, { passive: false });
 window.addEventListener('touchend', handleTouchEnd);
 
 
-// אתחול: התחלה במצב מינימלי (0.8)
+// אתחול: התחלה עם הזום המינימלי הנכון לאובייקט הראשון
+currentZoom = getMinZoomForCurrentObject();
 updateImageTransform();
 objectGroups[currentObjectIndex].classList.add('active'); 
 const { cleanLayer, rustLayers } = getCurrentObjectLayers();
